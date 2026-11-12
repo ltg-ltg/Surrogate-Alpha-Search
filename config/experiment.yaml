@@ -52,6 +52,15 @@ backtest:
   winsor_quantiles: [0.01, 0.99]
   annualization: 252
 
+# Output files ({market} = us | jp). results_oos may only be written by
+# src/backtest/engine.py and read by src/analysis/oos_report.py (CLAUDE.md rule 3).
+outputs:
+  results_is_test: artifacts/results_{market}_is_test.parquet
+  results_oos: artifacts/results_{market}_oos.parquet
+  pnl_is: artifacts/pnl_{market}_is.npy
+  pnl_is_dates: artifacts/pnl_{market}_is_dates.csv
+  thresholds: artifacts/thresholds_{market}_v1.json
+
 pass_criteria:
   is_sharpe:
     start: 0.7
@@ -61,10 +70,11 @@ pass_criteria:
   test_sharpe_fallback: 0.0
   max_is_turnover: 0.50
   max_pnl_corr: 0.70
-  base_rate:
-    target: 0.03
-    allowed: [0.01, 0.05]
-  min_random_expected_passes: 20   # recalibrate if B * base_rate falls below this
+  # IS threshold = highest grid value whose simulated random arm (warm-up removed,
+  # then B picks) finds >= min_random_unique_mean unique passes on average (design 5.3).
+  calibration:
+    min_random_unique_mean: 22
+    n_simulations: 200
 
 experiment:
   warmup_size: 1000

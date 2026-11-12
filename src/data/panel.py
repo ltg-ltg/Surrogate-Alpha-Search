@@ -25,6 +25,15 @@ class Panel:
         hi = self.dates.searchsorted(pd.Timestamp(end), side="right")
         return slice(int(lo), int(hi))
 
+    def truncated(self, n_rows: int) -> Panel:
+        """First n_rows dates only (used to time IS-only warm-up backtests)."""
+        return Panel(
+            self.dates[:n_rows],
+            self.tickers,
+            {k: v[:n_rows] for k, v in self.fields.items()},
+            self.valid[:n_rows],
+        )
+
 
 def build_panel(frames: dict[str, pd.DataFrame]) -> Panel:
     close = frames["close"]

@@ -255,3 +255,89 @@ def rolling_corr(x, y, w):
     xt = np.ascontiguousarray(x.T)
     yt = np.ascontiguousarray(y.T)
     return np.ascontiguousarray(_rolling_corr_nt(xt, yt, w).T)
+
+
+# ---------------------------------------------------------------- backtest helpers
+
+
+@njit(parallel=True, cache=True)
+def cs_winsorize(x, q_lo, q_hi):
+    """Clip each row to its [q_lo, q_hi] quantiles over finite values (linear interp)."""
+    T, N = x.shape
+    out = x.copy()
+    for t in prange(T):
+        vals = np.empty(N)
+        n = 0
+        for j in range(N):
+            if np.isfinite(x[t, j]):
+                vals[n] = x[t, j]
+                n += 1
+        if n < 2:
+            continue
+        s = np.sort(vals[:n])
+        bounds = np.empty(2)
+        for b in range(2):
+            q = q_lo if b == 0 else q_hi
+            pos = q * (n - 1)
+            lo = int(np.floor(pos))
+            hi = min(lo + 1, n - 1)
+            bounds[b] = s[lo] + (s[hi] - s[lo]) * (pos - lo)
+        for j in range(N):
+            v = x[t, j]
+            if np.isfinite(v):
+                if v < bounds[0]:
+                    out[t, j] = bounds[0]
+                elif v > bounds[1]:
+                    out[t, j] = bounds[1]
+    return out
+
+
+@njit(cache=True)
+def _avg_rank(v):
+    n = v.shape[0]
+    order = np.argsort(v, kind="mergesort")
+    r = np.empty(n)
+    i = 0
+    while i < n:
+        k = i
+        while k + 1 < n and v[order[k + 1]] == v[order[i]]:
+            k += 1
+        avg = (i + k) / 2.0 + 1.0
+        for m in range(i, k + 1):
+            r[order[m]] = avg
+        i = k + 1
+    return r
+
+
+@njit(parallel=True, cache=True)
+def spearman_rows(x, y):
+    """Per-row Spearman correlation over columns where both x and y are finite."""
+    T, N = x.shape
+    out = np.full(T, _NAN)
+    for t in prange(T):
+        a = np.empty(N)
+        b = np.empty(N)
+        n = 0
+        for j in range(N):
+            if np.isfinite(x[t, j]) and np.isfinite(y[t, j]):
+                a[n] = x[t, j]
+                b[n] = y[t, j]
+                n += 1
+        if n < 3:
+            continue
+        ra = _avg_rank(a[:n])
+        rb = _avg_rank(b[:n])
+        ma = ra.mean()
+        mb = rb.mean()
+        cov = 0.0
+        va = 0.0
+        vb = 0.0
+        for i in range(n):
+            da = ra[i] - ma
+            db = rb[i] - mb
+            cov += da * db
+            va += da * da
+            vb += db * db
+        if va > 0.0 and vb > 0.0:
+            out[t] = cov / np.sqrt(va * vb)
+    return out
