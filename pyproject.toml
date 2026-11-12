@@ -1,0 +1,33 @@
+[project]
+name = "surrogate-alpha-search"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "pyyaml",
+    "requests",
+    "lxml",
+    "yfinance",
+    "scikit-learn",
+    "lightgbm",
+    "xgboost",
+    "catboost",
+    "optuna",
+    "scipy",
+    "numba",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

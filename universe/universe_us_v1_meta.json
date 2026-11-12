@@ -1,0 +1,36 @@
+{
+  "market": "us",
+  "snapshot_date": "2026-11-01",
+  "source_url": "https://en.wikipedia.org/w/index.php?oldid=1382178819",
+  "page_title": "List of S&P 500 companies",
+  "revision_id": 1382178819,
+  "revision_timestamp": "2026-10-27T02:50:28Z",
+  "fetched_at": "2026-11-12T09:06:50+00:00",
+  "raw_count": 503,
+  "validation": {
+    "expected_count_range": [
+      495,
+      510
+    ],
+    "count_ok": true,
+    "official_crosscheck": "pending manual check"
+  },
+  "final_count": 496,
+  "excluded_count": 7,
+  "cleaning": {
+    "holiday_dates_dropped": [],
+    "zero_volume_cells_masked": 3377,
+    "zero_volume_top_tickers": {
+      "SW": 1381,
+      "FERG": 1033,
+      "AMCR": 897,
+      "HWM": 35,
+      "VRT": 12,
+      "IBKR": 2,
+      "PFG": 2,
+      "AMD": 1,
+      "BKR": 1,
+      "CNC": 1
+    }
+  }
+}

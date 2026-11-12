@@ -1,0 +1,65 @@
+# Formula grammar (v1). Source of truth: design sections 4.1-4.6.
+version: v1
+
+fields:
+  open: price
+  high: price
+  low: price
+  close: price
+  volume: volume
+  returns: dimensionless
+
+windows: [5, 10, 20, 60, 120]
+
+# unit rule keys:
+#   same       -> output unit equals input unit
+#   dimless    -> output is dimensionless
+#   same_binary-> both operands must share a unit; output equals that unit
+#   mixed      -> mul/div rule (design 4.2, 4.3)
+operators:
+  ts_mean:  {category: ts,    arity: 1, window: true, unit: same}
+  ts_std:   {category: ts,    arity: 1, window: true, unit: same, min_window: 10}
+  ts_rank:  {category: ts,    arity: 1, window: true, unit: dimless}
+  ts_delta: {category: ts,    arity: 1, window: true, unit: same}
+  ts_delay: {category: ts,    arity: 1, window: true, unit: same}
+  ts_corr:  {category: ts,    arity: 2, window: true, unit: dimless, min_window: 10, commutative: true}
+  ts_max:   {category: ts,    arity: 1, window: true, unit: same}
+  ts_min:   {category: ts,    arity: 1, window: true, unit: same}
+  rank:     {category: cs,    arity: 1, window: false, unit: dimless}
+  zscore:   {category: cs,    arity: 1, window: false, unit: dimless}
+  add:      {category: arith, arity: 2, window: false, unit: same_binary, commutative: true}
+  sub:      {category: arith, arity: 2, window: false, unit: same_binary}
+  mul:      {category: arith, arity: 2, window: false, unit: mixed, commutative: true}
+  div:      {category: arith, arity: 2, window: false, unit: mixed}
+  abs:      {category: arith, arity: 1, window: false, unit: same}
+  sign:     {category: arith, arity: 1, window: false, unit: dimless}
+
+# Operators that convert any unit (including mixed) into dimensionless.
+normalizing_ops: [rank, zscore, ts_rank, sign]
+
+size:
+  min_depth: 2
+  max_depth: 5
+  max_nodes: 15
+  max_cumulative_lookback: 250
+
+# Forbidden parent(child(...)) patterns (design 4.5).
+forbidden_nesting:
+  - [rank, rank]
+  - [abs, abs]
+  - [sign, sign]
+  - [ts_delay, ts_delay]
+  - [zscore, rank]
+  - [rank, zscore]
+  - [abs, rank]
+  - [sign, abs]
+# Binary ops whose two operands must differ (canonical form).
+forbidden_self_ops: [sub, div, ts_corr]
+
+sampling:
+  category_probs: {ts: 0.4, arith: 0.4, cs: 0.2}
+  # Depth 2 has only ~363 valid formulas, so it is enumerated exhaustively;
+  # the remaining pool is split equally across the sampled depths (design 4.6).
+  exhaustive_depths: [2]
+  sampled_depths: [3, 4, 5]
+  leaf_prob: depth_over_max_depth   # P(leaf at node of depth d) = d / max_depth

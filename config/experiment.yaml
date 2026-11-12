@@ -1,0 +1,80 @@
+# Experiment configuration (v1). Values fixed before seeing any results.
+# Source of truth: surrogate_alpha_search_design.md. Do not edit without bumping version.
+version: v1
+
+# Master seed; every random stream is derived from it (see src/common/seeds.py).
+master_seed: 20261101
+
+markets:
+  us:
+    universe_file: universe/universe_us_v1.csv
+    snapshot_date: "2026-11-01"
+    source:
+      wiki_host: en.wikipedia.org
+      wiki_title: List of S&P 500 companies
+    expected_count: [495, 510]   # sanity range for the raw constituent list
+    ticker_suffix: ""
+  jp:
+    universe_file: universe/universe_jp_v1.csv
+    snapshot_date: "2026-11-01"
+    source:
+      wiki_host: ja.wikipedia.org
+      wiki_title: 日経平均株価
+    expected_count: [225, 225]
+    ticker_suffix: ".T"
+
+data:
+  download_start: "2015-01-01"   # 2015 is a lookback buffer only (design 3.1, 3.3)
+  download_end: "2025-12-31"     # inclusive
+  batch_size: 100
+  max_retries: 2
+  share_class_volume_period: is  # pick the share class with higher mean volume over IS
+  cleaning:
+    # Drop dates where >= 50% of priced tickers have zero volume; remaining
+    # zero-volume stock-days become NaN in all fields (design 3.2).
+    holiday_zero_volume_ratio: 0.5
+
+periods:
+  is:   ["2016-01-01", "2021-12-31"]
+  test: ["2022-01-01", "2023-12-31"]
+  oos:  ["2024-01-01", "2025-12-31"]
+
+pool:
+  size: 40000
+  file: artifacts/pool_v1.parquet
+  signal_filter:
+    min_valid_ratio: 0.70          # stock-day valid ratio over 2016-2025
+    max_constant_day_ratio: 0.10   # days with zero cross-sectional std
+
+backtest:
+  delay_days: 1                    # signal at close t, execute at close t+1, return t+1 -> t+2
+  cost_bps: 5.0                    # one-way, applied to sum |w(t) - w(t-1)|
+  winsor_quantiles: [0.01, 0.99]
+  annualization: 252
+
+pass_criteria:
+  is_sharpe:
+    start: 0.7
+    search_range: [0.3, 1.5]
+    search_step: 0.05
+  test_sharpe: 0.3
+  test_sharpe_fallback: 0.0
+  max_is_turnover: 0.50
+  max_pnl_corr: 0.70
+  base_rate:
+    target: 0.03
+    allowed: [0.01, 0.05]
+  min_random_expected_passes: 20   # recalibrate if B * base_rate falls below this
+
+experiment:
+  warmup_size: 1000
+  budget: 2000
+  precision_k: 200
+  n_seeds: 30
+  discovery_budgets: [500, 1000, 1500, 2000]
+  arms: [random, heuristic, lightgbm, xgboost, catboost, random_forest]
+
+surrogate:
+  optuna_trials: 50
+  cv_folds: 5
+  heuristic_smoothing_m: 5
