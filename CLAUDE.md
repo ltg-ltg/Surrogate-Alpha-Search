@@ -33,7 +33,7 @@ surrogate-alpha-search/
 │   ├── backtest/      # operators.py, kernels.py (numba), engine.py, metrics.py
 │   ├── surrogate/     # models.py, tune.py, heuristic.py
 │   ├── experiment/    # arms.py, replay.py, accessor.py
-│   └── analysis/      # stats.py, plots.py, oos_report.py
+│   └── analysis/      # stats.py, equal_budget.py, benchmark.py, cluster_diagnostics.py, plots.py, oos_report.py
 └── tests/
 ```
 
@@ -50,6 +50,9 @@ python -m src.backtest.engine --market us      # 풀 전수 백테스트 (IS/Tes
 python -m src.experiment.replay --market us    # 30시드 × 6 arm 리플레이
 python -m src.experiment.replay --market jp    # 일본 전이 실험
 python -m src.analysis.stats                   # 핵심 지표, 검정, 그래프
+python -m src.analysis.equal_budget            # 같은 총 예산 강건성 분석 (설계 8.4)
+python -m src.analysis.benchmark               # 통일 조건 시간 벤치마크, 단독 실행 (설계 8.5)
+python -m src.analysis.cluster_diagnostics     # 군집 집중도 사후 진단 (설계 8.6)
 python -m src.analysis.oos_report              # OOS 최종 1회 (사용자 승인 후에만)
 pytest
 ```
