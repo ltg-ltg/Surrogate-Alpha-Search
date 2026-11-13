@@ -64,6 +64,20 @@ class ResultAccessor:
         self._warmup = set(ids.tolist())
         return self._d["is_sharpe"].to_numpy()[ids].copy()
 
+    def warmup_is_details(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(ids sorted, directed IS daily net PnL, IS turnover) of the drawn warm-up.
+
+        Same formulas and same IS backtest as warmup_targets, so no extra charge.
+        Only used by the residual-target experiment (design 7.6).
+        """
+        if not self._warmup:
+            raise AccessError("warm-up not drawn")
+        ids = np.array(sorted(self._warmup), dtype=np.int64)
+        net = self._pnl.direction[ids, None] * np.asarray(
+            self._pnl.gross[ids], dtype=np.float64
+        ) - np.asarray(self._pnl.cost[ids], dtype=np.float64)
+        return ids, net, self._d["is_turnover"].to_numpy()[ids].copy()
+
     def register_selection(self, ids) -> None:
         ids = self._check_ids(ids)
         if self._selection is not None:

@@ -8,6 +8,7 @@ Families (Holm within each family, two-sided Wilcoxon signed-rank, 30 paired see
   h3_<market>        model pairs (unique passes)
   ablation_<metric>  base vs extended schema per model (US)       [design 7.4]
   mmr_<market>       lambda 0.5 MMR vs top-B / random / structure random  [7.5, exploratory]
+  resid_<market>     residual-target cells vs random and vs raw-target twin  [7.6, exploratory]
 """
 
 from __future__ import annotations
@@ -116,6 +117,60 @@ def run_family(name: str, pairs: list[tuple[str, str]], p: pd.DataFrame, metric:
     return out
 
 
+def _cells(market: str, lam: float, B: int, data: dict) -> dict[str, pd.Series]:
+    """unique_at_B per seed for every (arm, schema, selection, target) cell of one market."""
+    met = f"unique_at_{B}"
+    cells: dict[str, pd.Series] = {}
+
+    def add(df: pd.DataFrame, schema: str, sel: str, target: str) -> None:
+        for arm, g in df.groupby("arm"):
+            cells[f"{arm}|{schema}|{sel}|{target}"] = g.set_index("seed")[met].sort_index()
+
+    schemas = ("base", "ext")  # JP ext added as a replication test (design 7.6)
+    for schema in schemas:
+        for target in ("raw", "resid"):
+            sfx = "" if target == "raw" else "_resid"
+            top = run_dir(market, schema + sfx) / "metrics.parquet"
+            mmr = run_dir(market, ("mmr" if schema == "base" else "ext_mmr") + sfx)
+            if schema == "base" and target == "raw":
+                add(data[(market, "base")], schema, "top", target)
+            elif top.exists():
+                add(pd.read_parquet(top), schema, "top", target)
+            if (mmr / "metrics.parquet").exists():
+                m = pd.read_parquet(mmr / "metrics.parquet")
+                add(m[m["lam"] == lam], schema, "mmr", target)
+    return cells
+
+
+def residual_section(data: dict, B: int, lam: float) -> tuple[list, list]:
+    tables, tests = [], []
+    for market in ("us", "jp"):
+        cells = _cells(market, lam, B, data)
+        frame = pd.DataFrame(cells)
+        resid_keys = [c for c in frame.columns if c.endswith("|resid")]
+        pairs = [(c, "random|base|top|raw") for c in resid_keys]
+        pairs += [
+            (c, c.replace("|resid", "|raw"))
+            for c in resid_keys
+            if c.replace("|resid", "|raw") in frame
+        ]
+        tests += run_family(f"resid_{market}", pairs, frame, f"unique_at_{B}")
+        for c in resid_keys:
+            x = frame[c].to_numpy(float)
+            lo, hi = bootstrap_ci(x, f"resid/{market}/{c}")
+            tables.append(
+                {
+                    "experiment": f"{market}_resid",
+                    "arm": c,
+                    "metric": f"unique_at_{B}",
+                    "mean": x.mean(),
+                    "ci_low": lo,
+                    "ci_high": hi,
+                }
+            )
+    return [pd.DataFrame(tables)], tests
+
+
 def main() -> None:
     logger = setup_logging("stats")
     cfg = load_experiment_config()
@@ -192,6 +247,12 @@ def main() -> None:
     tables.append(
         summarize(ext_mmr, "us_ext_mmr_lam0.5", [f"unique_at_{B}", "n_pass_1to3", "precision_at_k"])
     )
+
+    # Residual target (exploratory, design 7.6). Skipped until its runs exist.
+    if (run_dir("us", "base_resid") / "metrics.parquet").exists():
+        r_tables, r_tests = residual_section(data, B, cfg["diversity"]["primary_lambda"])
+        tables += r_tables
+        tests += r_tests
 
     summary = pd.concat(tables, ignore_index=True)
     test_df = pd.DataFrame(tests)

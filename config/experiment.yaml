@@ -90,6 +90,10 @@ diversity:
   primary_lambda: 0.5
   arms: [heuristic, lightgbm, xgboost, catboost, random_forest, struct_random]
 
+# Post-hoc exploratory experiment (design 7.6): residual (orthogonalized) target.
+residual_target:
+  n_references: 5   # K distinct warm-up reference signals (IS-only selection)
+
 surrogate:
   optuna_trials: 50
   cv_folds: 5

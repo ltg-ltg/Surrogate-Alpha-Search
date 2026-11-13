@@ -26,7 +26,8 @@ from src.experiment.replay import _load_market, evaluate_selection, run_dir
 _W: dict = {}
 
 
-def _init_worker(market: str, schema: str) -> None:
+def _init_worker(market: str, schema: str, target: str) -> None:
+    src = schema if target == "raw" else f"{schema}_resid"
     cfg = load_experiment_config()
     feats = pd.read_parquet(ARTIFACTS_DIR / "features_v1.parquet")
     cols = json.loads((ARTIFACTS_DIR / "feature_schema_v1.json").read_text(encoding="utf-8"))[
@@ -40,8 +41,9 @@ def _init_worker(market: str, schema: str) -> None:
         mk=_load_market(market),
         schema=schema,
         # Similarity always uses the base features; only predictions follow the schema.
-        base_metrics=pd.read_parquet(run_dir(market, schema) / "metrics.parquet"),
-        pred_path=run_dir(market, schema) / "predictions.parquet",
+        base_metrics=pd.read_parquet(run_dir(market, src) / "metrics.parquet"),
+        target=target,
+        pred_path=run_dir(market, src) / "predictions.parquet",
     )
 
 
@@ -67,6 +69,8 @@ def _run_seed(args: tuple[int, str]) -> tuple[list[dict], list[pd.DataFrame]]:
         lambdas = [dv["primary_lambda"]]
     else:
         arms, lambdas = dv["arms"], dv["lambdas"]
+    if _W["target"] == "resid":  # struct_random has no target: reuse the raw run
+        arms = [a for a in arms if a != "struct_random"]
     rows, sels = [], []
     for arm in arms:
         if arm == "struct_random":
@@ -129,19 +133,21 @@ def _run_seed(args: tuple[int, str]) -> tuple[list[dict], list[pd.DataFrame]]:
     return rows, sels
 
 
-def run(market: str, schema: str, workers: int, seeds: list[int]) -> None:
-    if market == "jp" and schema != "base":
-        raise ValueError("JP uses the base schema only")
+def run(market: str, schema: str, workers: int, seeds: list[int], target: str = "raw") -> None:
     logger = setup_logging(f"replay_mmr_{market}_{schema}")
     t0 = time.perf_counter()
     rows, sels = [], []
-    with ProcessPoolExecutor(workers, initializer=_init_worker, initargs=(market, schema)) as ex:
+    with ProcessPoolExecutor(
+        workers, initializer=_init_worker, initargs=(market, schema, target)
+    ) as ex:
         for r, s in ex.map(_run_seed, [(sd, market) for sd in seeds]):
             rows += r
             sels += s
             primary = {x["arm"]: x["unique_at_2000"] for x in r if x["primary"]}
             logger.info("seed %d done (%.0fs): %s", r[0]["seed"], time.perf_counter() - t0, primary)
-    out = run_dir(market, "mmr" if schema == "base" else "ext_mmr")
+    out = run_dir(
+        market, ("mmr" if schema == "base" else "ext_mmr") + ("" if target == "raw" else "_resid")
+    )
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_parquet(out / "metrics.parquet", index=False)
     pd.concat(sels).to_parquet(out / "selections.parquet", index=False)
@@ -154,11 +160,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--market", required=True, choices=["us", "jp"])
     parser.add_argument("--schema", default="base", choices=["base", "ext"])
+    parser.add_argument("--target", default="raw", choices=["raw", "resid"])
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--seeds", type=int, nargs="*", default=None)
     args = parser.parse_args()
     n = load_experiment_config()["experiment"]["n_seeds"]
-    run(args.market, args.schema, args.workers, args.seeds if args.seeds else list(range(n)))
+    seeds = args.seeds if args.seeds else list(range(n))
+    run(args.market, args.schema, args.workers, seeds, args.target)
 
 
 if __name__ == "__main__":

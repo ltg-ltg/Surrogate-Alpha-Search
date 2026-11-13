@@ -3,6 +3,7 @@
   --market us --schema base   30 seeds x 6 arms (H1, H3). Saves fitted arms for JP.
   --market us --schema ext    30 seeds x 4 models, extended features (ablation 7.4).
   --market jp                 US-trained arms applied to the JP pool, no JP warm-up (9).
+  --target resid              residual-target variant (7.6, exploratory) -> <dir>_resid
 
 Outputs under artifacts/replay/<market>_<schema>/:
   metrics.parquet      one row per (seed, arm): unique passes per budget, Precision@k,
@@ -106,6 +107,24 @@ def evaluate_selection(view, th: Thresholds, budgets: list[int], k: int) -> dict
     return out, flags
 
 
+def _residual_targets(acc, warm: np.ndarray, y_raw: np.ndarray, th) -> np.ndarray:
+    """Design 7.6: residual Sharpe vs K distinct warm-up references (IS info only)."""
+    from src.surrogate.residual import residual_sharpe, select_references
+
+    ids, net, turnover = acc.warmup_is_details()
+    assert np.array_equal(ids, warm), "warm-up must be sorted"
+    refs = select_references(
+        net,
+        y_raw,
+        turnover,
+        th.is_sharpe,
+        th.max_is_turnover,
+        th.max_pnl_corr,
+        _W["cfg"]["residual_target"]["n_references"],
+    )
+    return residual_sharpe(net, refs, _W["cfg"]["backtest"]["annualization"])
+
+
 def _warmup_ids(seed: int) -> np.ndarray:
     us = _W["us"]
     rng = rng_for("warmup", seed)
@@ -115,15 +134,18 @@ def _warmup_ids(seed: int) -> np.ndarray:
 
 
 def _run_seed(
-    args: tuple[int, str, str],
+    args: tuple[int, str, str, str],
 ) -> tuple[list[dict], list[pd.DataFrame], list[pd.DataFrame]]:
-    seed, market, schema = args
+    seed, market, schema, target = args
+    variant = schema if target == "raw" else f"{schema}_resid"
     cfg = _W["cfg"]
     ex, scfg = cfg["experiment"], cfg["surrogate"]
     W, B, k = ex["warmup_size"], ex["budget"], ex["precision_k"]
     us = _W["us"]
     mk = _W[market]
     arms = ARM_NAMES if schema == "base" else MODEL_NAMES
+    if target == "resid":  # random does not use a target: reuse the raw-target run
+        arms = tuple(a for a in arms if a != "random")
     warm = _warmup_ids(seed)
 
     if market == "us":
@@ -136,6 +158,8 @@ def _run_seed(
         if market == "us":
             acc = ResultAccessor(us["d"], us["pnl"], us["eval_ids"], budget=W + B)
             y_warm = acc.warmup_targets(warm)
+            if target == "resid":
+                y_warm = _residual_targets(acc, warm, y_warm, us["th"])
             fitted = fit_arm(
                 arm_name,
                 _W["X"][warm],
@@ -145,13 +169,13 @@ def _run_seed(
                 derive_seed("model", schema, seed, arm_name),
                 scfg,
             )
-            path = model_path(schema, seed, arm_name)
+            path = model_path(variant, seed, arm_name)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(pickle.dumps(fitted))
             backtest_sec = float(us["time_is"][warm].sum())
         else:
             acc = ResultAccessor(mk["d"], mk["pnl"], mk["eval_ids"], budget=B)
-            fitted = pickle.loads(model_path(schema, seed, arm_name).read_bytes())
+            fitted = pickle.loads(model_path(variant, seed, arm_name).read_bytes())
             backtest_sec = 0.0
 
         order, scores, predict_sec = rank_candidates(
@@ -214,15 +238,13 @@ def _run_seed(
     return rows, sels, preds
 
 
-def run(market: str, schema: str, workers: int, seeds: list[int]) -> None:
+def run(market: str, schema: str, workers: int, seeds: list[int], target: str = "raw") -> None:
     logger = setup_logging(f"replay_{market}_{schema}")
-    if market == "jp" and schema != "base":
-        raise ValueError("JP transfer uses the base schema only (design 7.4)")
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     t0 = time.perf_counter()
     rows, sels, preds = [], [], []
     with ProcessPoolExecutor(workers, initializer=_init_worker, initargs=(market, schema)) as ex:
-        for r, s, p in ex.map(_run_seed, [(sd, market, schema) for sd in seeds]):
+        for r, s, p in ex.map(_run_seed, [(sd, market, schema, target) for sd in seeds]):
             rows += r
             sels += s
             preds += p
@@ -232,7 +254,7 @@ def run(market: str, schema: str, workers: int, seeds: list[int]) -> None:
                 time.perf_counter() - t0,
                 {x["arm"]: x["unique_at_2000"] for x in r},
             )
-    out = run_dir(market, schema)
+    out = run_dir(market, schema if target == "raw" else f"{schema}_resid")
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_parquet(out / "metrics.parquet", index=False)
     pd.concat(sels).to_parquet(out / "selections.parquet", index=False)
@@ -252,11 +274,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--market", required=True, choices=["us", "jp"])
     parser.add_argument("--schema", default="base", choices=["base", "ext"])
+    parser.add_argument("--target", default="raw", choices=["raw", "resid"])
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     parser.add_argument("--seeds", type=int, nargs="*", default=None)
     args = parser.parse_args()
     n = load_experiment_config()["experiment"]["n_seeds"]
-    run(args.market, args.schema, args.workers, args.seeds if args.seeds else list(range(n)))
+    seeds = args.seeds if args.seeds else list(range(n))
+    run(args.market, args.schema, args.workers, seeds, args.target)
 
 
 if __name__ == "__main__":
