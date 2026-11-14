@@ -8,6 +8,7 @@ Measures, with every library limited to one thread:
   - per seed (0-2) and per arm / variant: residual target + tuning + fit, inference on
     all candidates, MMR (lambda 0.5); predictions are checked against the saved ones
 Outputs under artifacts/benchmark/.
+`--verify` re-times the seed-0 sets of the correction check (design 8.5) instead.
 """
 
 from __future__ import annotations
@@ -246,7 +247,78 @@ def bench_fits(logger) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def verify_correction(logger) -> pd.DataFrame:
+    """Design 8.5 correction check: re-time seed-0 sets directly (US)."""
+    from src.analysis.equal_budget import _warmup
+    from src.backtest import engine
+    from src.backtest.metrics import period_metrics
+    from src.experiment.replay import run_dir
+    from src.generator.grammar import parse
+
+    cfg = load_experiment_config()
+    W, B, lam = (
+        cfg["experiment"]["warmup_size"],
+        cfg["experiment"]["budget"],
+        cfg["diversity"]["primary_lambda"],
+    )
+    engine._init_worker("us")
+    E = engine._W
+    ann = E["bt"]["annualization"]
+    pool = pd.read_parquet(PROJECT_ROOT / cfg["pool"]["file"])
+    rec = pd.read_parquet(engine.output_path("results_is_test", "us"))
+    eval_ids = np.flatnonzero(rec["filter_pass"].to_numpy())
+    sel = pd.read_parquet(run_dir("us", "ext_mmr_resid") / "selections.parquet")
+    sel = sel[(sel["seed"] == 0) & (sel["arm"] == "lightgbm") & (sel["lam"] == lam)]
+    sets = {
+        "lightgbm_ext_mmr_resid_picks": np.sort(sel["formula_id"].to_numpy()),
+        "warmup": _warmup(eval_ids, 0, W),
+        "random3000": np.sort(
+            rng_for("random_equal_budget", "us", 0).permutation(eval_ids)[: W + B]
+        ),
+    }
+    assert len(sets["lightgbm_ext_mmr_resid_picks"]) == B
+    union = np.unique(np.concatenate(list(sets.values())))
+    for text in pool["formula"].iloc[union[:5]]:  # JIT warm-up
+        engine._backtest(E["panel"], parse(text))
+    t_full, t_is = {}, {}
+    for n, fid in enumerate(union):
+        node = parse(pool.at[fid, "formula"])
+        t0 = time.perf_counter()
+        engine._backtest(E["panel"], node)
+        t_full[fid] = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        _, s = engine._backtest(E["trunc"], node)
+        for d in (1.0, -1.0):
+            period_metrics(s, E["trunc_is_rows"], d, ann)
+        t_is[fid] = time.perf_counter() - t0
+        if (n + 1) % 500 == 0:
+            logger.info("verify: %d / %d formulas timed", n + 1, len(union))
+    bt = pd.read_parquet(OUT / "backtest_timing.parquet").query("market == 'us'")
+    r_full = float((bt.t_full / bt.rec_full).median())
+    r_is = float((bt.t_is / bt.rec_is).median())
+    rows = []
+    for name, ids in sets.items():
+        rows.append(
+            {
+                "set": name,
+                "n": len(ids),
+                "measured_full": sum(t_full[i] for i in ids),
+                "estimated_full": float(rec["time_full_sec"].to_numpy()[ids].sum() * r_full),
+                "measured_is": sum(t_is[i] for i in ids),
+                "estimated_is": float(rec["time_is_sec"].to_numpy()[ids].sum() * r_is),
+            }
+        )
+        logger.info("verify %s: %s", name, rows[-1])
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
+    if "--verify" in sys.argv:
+        logger = setup_logging("benchmark_verify")
+        df = verify_correction(logger)
+        df.to_csv(OUT / "correction_check.csv", index=False)
+        logger.info("verify done")
+        return
     logger = setup_logging("benchmark")
     OUT.mkdir(parents=True, exist_ok=True)
     env = environment()

@@ -1,7 +1,8 @@
 """Post-hoc cluster-concentration diagnostic (design 8.6), US only, IS/Test only.
 
 Descriptive statistics only (no tests): for every US cell's B picks per seed,
-  - criteria 1-3 passes, unique passes (1-4), collapse = 1 - unique / passes_1to3
+  - criteria 1-3 passes, unique passes (1-4), collapse = 1 - unique / passes_1to3 per seed;
+    the summary also reports the pooled 1 - sum(unique) / sum(passes_1to3)
   - skeleton concentration: distinct groups, effective groups (1 / sum share^2), top-10 share
   - IS daily net PnL redundancy: mean |corr| and share of pairs with |corr| >= max_corr,
     over all picks and over criteria 1-3 passers only
@@ -114,6 +115,9 @@ def main() -> None:
             lo, hi = bootstrap_ci(x, f"cluster/{cell}/{m}") if len(x) else (np.nan, np.nan)
             row[m] = x.mean() if len(x) else np.nan
             row[f"{m}_ci_low"], row[f"{m}_ci_high"] = lo, hi
+        # pooled collapse: 1 - sum(unique) / sum(passes 1-3). The per-seed mean ("collapse")
+        # is pulled down by seeds with few passes, so the pooled value is the headline one.
+        row["collapse_pooled"] = 1 - g["unique"].sum() / g["pass_1to3"].sum()
         summary.append(row)
     pd.DataFrame(summary).to_csv(OUT / "cluster_diagnostics_summary.csv", index=False)
     logger.info("wrote cluster_diagnostics{,_summary}.csv (%d cells)", len(summary))
