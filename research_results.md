@@ -1,7 +1,7 @@
 # 대리 모델 기반 알파 탐색 효율화: 연구 결과
 
 - 작성일: 2026-11-13 (2026-11-14 시간 벤치마크, 군집 진단, H2 OOS 결과 반영)
-- 상태: H1·H3·사후 탐색·H2(OOS 1회, 2026-11-14 실행) 결과 정리. 그래프 작업만 남음
+- 상태: H1·H3·사후 탐색·H2(OOS 1회, 2026-11-14 실행) 결과와 그림 정리 완료
 - 설계 기준: `surrogate_alpha_search_design.md`. 수치 출처: `artifacts/analysis/`, `artifacts/thresholds_*_v1.json`, `artifacts/replay/`
 
 ---
@@ -320,6 +320,20 @@ H1 결과를 본 뒤 추가한 진단이라 검정 없이 30시드 평균만 보
 - 참고: 풀 전체 기준 1~3 통과 시그널(중복 제거 전)의 OOS Sharpe 중앙값은 미국 1.60, 일본 2.01로 채택 시그널보다 훨씬 높다. 중복 제거 전 풀은 큰 군집(같은 수익원의 쌍둥이 수식들)에 지배되는데, 그 군집이 OOS에서도 강했다는 뜻이다
 - 한계: 30시드는 같은 풀·같은 OOS 2년을 공유해 독립이 아니다. 시드 기반 구간은 선택 잡음만 반영하며, 기간 불확실성은 블록 부트스트랩 보조 분석으로만 보였다
 
+### 4.10 그림 (설계 11장 산출물)
+
+`python -m src.analysis.plots`로 생성하며 `artifacts/analysis/figures/`에 저장된다. IS 대비 OOS 산점도는 OOS를 읽을 수 있는 유일한 모듈인 `oos_report.py`가 그렸다.
+
+| 파일 | 내용 | 산출물 |
+|---|---|---|
+| `discovery_curves.png` | 예산 대비 고유 통과 수와 95% CI. 위: H1 arm, 아래: 확장·MMR·잔차, 미국·일본 | 1 |
+| `cell_comparison.png` | arm × 변형(스키마·선택·타깃) 8개의 고유 통과 수, 무작위 arm 구간 표시 | 2, 6, 7, 8 |
+| `time_per_search.png` | 탐색 1회 단계별 시간과 고유 통과 1개당 시간 (미국, 8.5절) | 3 |
+| `artifacts/analysis/oos/scatter_is_oos_{us,jp}.png` | 채택 시그널의 IS 대비 OOS Sharpe | 4 |
+| `us_jp_sharpe.png` | 같은 수식의 미국·일본 IS Sharpe (Spearman 0.86) | 5 |
+| `mmr_lambda.png` | MMR λ 민감도 (기본·원시 타깃) | 7 |
+| `cluster_vs_unique.png` | 선택 내 고상관 쌍 비율 대비 고유 통과 수 (8.6절) | 진단 |
+
 ---
 
 ## 5. 해석
@@ -345,5 +359,5 @@ H1 결과를 본 뒤 추가한 진단이라 검정 없이 30시드 평균만 보
 
 ## 7. 남은 작업
 
-1. 그래프: 발견 곡선, 핵심 비교표, 미국–일본 Sharpe 산점도 (`analysis/plots.py`). OOS 산점도는 `artifacts/analysis/oos/scatter_is_oos_{us,jp}.png`로 생성됨
+1. 그림 완료 (4.10절)
 2. OOS는 1회 실행으로 잠겼다(`RUN_COMPLETE.json`). 이후 설정 변경이나 재실행은 하지 않는다
