@@ -77,6 +77,10 @@ def test_oos_results_referenced_only_by_engine_and_report():
         p.relative_to(root).as_posix()
         for p in root.rglob("*.py")
         if p.name not in allowed
-        and ("results_oos" in (txt := p.read_text(encoding="utf-8")) or "_oos.parquet" in txt)
+        and (
+            "results_oos" in (txt := p.read_text(encoding="utf-8"))
+            or "_oos.parquet" in txt
+            or "oos_locked" in txt
+        )
     ]
     assert offenders == []
